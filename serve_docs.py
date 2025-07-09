@@ -8,7 +8,7 @@ import threading
 import webbrowser
 import time
 
-PORT = 8081
+PORT = 8082
 DOCS_DIR = "spring-docs"
 
 class SpringDocsHandler(http.server.SimpleHTTPRequestHandler):
