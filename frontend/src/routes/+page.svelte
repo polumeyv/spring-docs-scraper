@@ -61,56 +61,12 @@
 			localStorage.setItem('recentSearches', JSON.stringify(recentSearches));
 			
 		} catch (err) {
-			// For now, use mock data
-			searchResults = {
-				framework: searchQuery,
-				links: getMockLinks(searchQuery),
-				timestamp: new Date()
-			};
-			
-			recentSearches = [searchResults, ...recentSearches.filter(s => s.framework !== searchQuery)].slice(0, 5);
-			localStorage.setItem('recentSearches', JSON.stringify(recentSearches));
+			error = 'Failed to search for documentation. Please try again.';
+			console.error('Search error:', err);
 		} finally {
 			loading = false;
 		}
 	}
-	
-	function getMockLinks(framework: string): DocLink[] {
-		// Mock data for demonstration
-		return [
-			{
-				title: `${framework} Official Documentation`,
-				url: `https://docs.example.com/${framework.toLowerCase()}`,
-				type: 'official',
-				description: `Official documentation for ${framework}`
-			},
-			{
-				title: `${framework} API Reference`,
-				url: `https://api.example.com/${framework.toLowerCase()}`,
-				type: 'api',
-				description: `Complete API reference for ${framework}`
-			},
-			{
-				title: `${framework} Getting Started Guide`,
-				url: `https://guides.example.com/${framework.toLowerCase()}/getting-started`,
-				type: 'tutorial',
-				description: `Quick start guide for ${framework}`
-			},
-			{
-				title: `${framework} GitHub Repository`,
-				url: `https://github.com/${framework.toLowerCase()}/${framework.toLowerCase()}`,
-				type: 'github',
-				description: `Source code and examples`
-			},
-			{
-				title: `${framework} Reference Documentation`,
-				url: `https://reference.example.com/${framework.toLowerCase()}`,
-				type: 'reference',
-				description: `In-depth reference documentation`
-			}
-		];
-	}
-	
 	async function loadFolders() {
 		try {
 			const response = await fetch('/api/folders');
