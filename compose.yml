@@ -59,7 +59,7 @@ services:
       - PYTHONUNBUFFERED=1
     networks:
       - app-network
-    command: python src/spring_docs_scraper.py
+    command: python src/async_spring_scraper_enhanced.py --no-rich
     profiles:
       - scraper  # Only run when explicitly requested
 
