@@ -1,120 +1,147 @@
-# Spring Docs Scraper
+# Developer Documentation Scraper
 
-Modern Spring documentation scraper with Svelte 5 + SvelteKit 2 frontend and Docker-based infrastructure.
+A modern, general-purpose documentation scraper that can find and download documentation for any framework or tool. Built with Svelte 5, SvelteKit 2, Python, and Docker.
 
-## 🚀 Quick Start
+## Features
+
+- 🔍 **Universal Search**: Search for documentation of any framework or tool
+- 📁 **Organized Storage**: Create and manage folders to organize downloaded documentation
+- 🚀 **Modern UI**: Clean, responsive interface built with Svelte 5
+- 🐳 **Docker-based**: Easy setup and deployment with Docker Compose
+- 📖 **Multiple Doc Types**: Finds official docs, API references, tutorials, and GitHub repos
+- 💾 **Recent Searches**: Keeps track of your search history
+
+## Quick Start
+
+1. Clone the repository:
+```bash
+git clone https://github.com/polumeyv/spring-docs-scraper.git
+cd spring-docs-scraper
+```
+
+2. Start the application:
+```bash
+docker compose up -d
+```
+
+3. Open your browser and navigate to:
+```
+http://localhost:3000
+```
+
+## How to Use
+
+1. **Search for Documentation**:
+   - Enter any framework or tool name (e.g., React, Django, FastAPI, etc.)
+   - Click "Search" to find documentation links
+
+2. **Manage Folders**:
+   - Select an existing folder from the dropdown
+   - Or click "📁 New Folder" to create a new one
+
+3. **Download Documentation**:
+   - Click "Download" on any documentation link
+   - The documentation will be scraped and saved to your selected folder
+
+## Architecture
+
+### Frontend (Svelte 5 + SvelteKit 2)
+- **Port**: 3000
+- Modern, reactive UI with Svelte 5
+- Real-time search and folder management
+- Responsive design with a clean color scheme
+
+### API Server (Flask + Python)
+- **Port**: 5000
+- RESTful API endpoints for:
+  - `/api/search-docs` - Search for documentation links
+  - `/api/folders` - List and create folders
+  - `/api/scrape` - Initiate documentation scraping
+
+### Documentation Server (Python HTTP Server)
+- **Port**: 8082
+- Serves scraped documentation
+- Static file serving for offline access
+
+### Scraper Service (Python + AsyncIO)
+- Async documentation scraper
+- Smart content extraction
+- Resource downloading (CSS, JS, images)
+
+## API Endpoints
+
+### Search Documentation
+```
+GET /api/search-docs?q={framework}
+```
+
+### List Folders
+```
+GET /api/folders
+```
+
+### Create Folder
+```
+POST /api/folders
+{
+  "name": "folder-name"
+}
+```
+
+### Scrape Documentation
+```
+POST /api/scrape
+{
+  "url": "https://docs.example.com",
+  "folder": "folder-name",
+  "framework": "framework-name"
+}
+```
+
+## Development
+
+### Project Structure
+```
+.
+├── frontend/          # Svelte frontend application
+├── backend/           # Python backend services
+│   └── src/
+│       ├── api_server.py         # Flask API server
+│       ├── doc_search_service.py # Documentation search logic
+│       ├── serve_docs.py         # Documentation server
+│       └── spring_docs_scraper.py # Scraper implementation
+├── compose.yml        # Docker Compose configuration
+└── README.md
+```
+
+### Running Individual Services
 
 ```bash
-# Clone and start the application
-git clone <repository-url>
-cd docs-scraper
-docker-compose up
+# Frontend only
+docker compose up frontend
+
+# API only
+docker compose up api
+
+# All services
+docker compose up
 ```
 
-The application will be available at:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8082
+### Running the Scraper
 
-## 📋 Features
-
-- **Modern Frontend**: Built with Svelte 5 and SvelteKit 2
-- **Containerized Architecture**: Everything runs in Docker containers
-- **Single Command Setup**: No complex environment configuration
-- **Hot Reload**: Frontend changes are instantly reflected
-- **Unified Configuration**: Single `.env` file for all settings
-
-## 🏗️ Architecture
-
-```
-docs-scraper/
-├── frontend/               # Svelte 5 + SvelteKit 2 application
-│   ├── src/
-│   ├── static/
-│   └── Dockerfile
-├── backend/                # Python scraper and API
-│   ├── src/
-│   └── Dockerfile
-├── spring-docs/            # Scraped documentation (shared volume)
-├── docker-compose.yml      # Service orchestration
-└── .env                    # Configuration
-```
-
-## 🛠️ Development
-
-### Available Commands
-
+The scraper runs on-demand:
 ```bash
-# Start development environment
-npm run dev
-
-# Build containers
-npm run build
-
-# Run documentation scraper
-npm run scrape
-
-# Stop all services
-npm run stop
-
-# Clean everything (including scraped docs)
-npm run clean
+docker compose run --rm scraper
 ```
 
-### Local Development (without Docker)
+## Contributing
 
-```bash
-# Frontend development
-npm run dev:frontend
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-# Backend development
-npm run dev:backend
-```
+## License
 
-## 🔧 Configuration
-
-Copy `.env.example` to `.env` and adjust settings as needed:
-
-```bash
-cp .env.example .env
-```
-
-## 📚 Documentation Structure
-
-The scraper organizes Spring documentation into a clean structure:
-
-```
-spring-docs/
-├── index.html          # SPA interface
-├── static/             # Organized assets
-│   ├── css/
-│   ├── js/
-│   └── img/
-├── content/            # JSON content files
-├── templates/          # HTML templates
-└── metadata.json       # Project metadata
-```
-
-## 🐳 Docker Services
-
-1. **frontend**: Svelte/SvelteKit application (port 3000)
-2. **backend**: Python API server (port 8082)
-3. **scraper**: Documentation scraper (runs on demand)
-
-## 🚀 Deployment
-
-For production deployment, use the production Dockerfile:
-
-```bash
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-## 🤝 Contributing
-
-1. Create a feature branch
-2. Make your changes
-3. Run tests
-4. Submit a pull request
-
-## 📝 License
-
-MIT License - see LICENSE file for details
+This project is licensed under the MIT License - see the LICENSE file for details.
