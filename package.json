@@ -1,0 +1,19 @@
+{
+  "name": "docs-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Spring documentation scraper with Svelte frontend",
+  "scripts": {
+    "dev": "docker-compose up",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend/src && python serve_docs.py",
+    "build": "docker-compose build",
+    "scrape": "docker-compose run --rm scraper",
+    "stop": "docker-compose down",
+    "clean": "docker-compose down -v && rm -rf spring-docs",
+    "install:frontend": "cd frontend && npm install"
+  },
+  "keywords": ["spring", "documentation", "scraper", "svelte"],
+  "author": "",
+  "license": "MIT"
+}

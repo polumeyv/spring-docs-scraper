@@ -1,0 +1,17 @@
+# Development Dockerfile for Svelte 5 + SvelteKit 2 with hot reload
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies first for better caching
+COPY package*.json ./
+RUN npm install
+
+# Copy source files
+COPY . .
+
+# Expose development port
+EXPOSE 5173
+
+# Start development server with hot reload
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

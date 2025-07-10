@@ -9,7 +9,7 @@ import webbrowser
 import time
 
 PORT = 8082
-DOCS_DIR = "spring-docs"
+DOCS_DIR = os.environ.get('DOCS_PATH', '/app/docs')
 
 class SpringDocsHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -200,8 +200,10 @@ def open_browser():
     webbrowser.open(f'http://localhost:{PORT}')
 
 def main():
-    # Change to the script directory
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    # Don't change directory in Docker environment
+    if not os.environ.get('DOCS_PATH'):
+        # Local development - change to script directory
+        os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
     # Check if docs directory exists
     if not os.path.exists(DOCS_DIR):
@@ -217,10 +219,11 @@ def main():
         print(f"Press Ctrl+C to stop the server")
         print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
-        # Open browser in a separate thread
-        browser_thread = threading.Thread(target=open_browser)
-        browser_thread.daemon = True
-        browser_thread.start()
+        # Open browser in a separate thread (only in local development)
+        if not os.environ.get('DOCS_PATH'):
+            browser_thread = threading.Thread(target=open_browser)
+            browser_thread.daemon = True
+            browser_thread.start()
         
         try:
             httpd.serve_forever()
