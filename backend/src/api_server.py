@@ -1,129 +1,218 @@
 #!/usr/bin/env python3
+"""
+API server with WebSocket support for real-time scraping updates
+"""
 import os
-import json
 import asyncio
-import re
+import uuid
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from typing import List, Dict, Optional
+from flask_socketio import SocketIO, emit, join_room, leave_room
 import logging
 from doc_search_service import DocSearchService
+from intelligent_doc_finder import IntelligentDocFinder
+from scraper_service import ScraperService
+from enhanced_topic_discovery import EnhancedTopicDiscoveryService
+from intelligent_scraper_service import IntelligentScraperService
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend communication
+CORS(app, resources={r"/*": {"origins": "*"}})
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Store active tasks
+active_tasks = {}
+
+@socketio.on('connect')
+def handle_connect():
+    client_id = request.sid
+    join_room(client_id)
+    logger.info(f"Client connected: {client_id}")
+    emit('connected', {'client_id': client_id})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    client_id = request.sid
+    leave_room(client_id)
+    logger.info(f"Client disconnected: {client_id}")
+
+@socketio.on('subscribe_task')
+def handle_subscribe(data):
+    task_id = data.get('task_id')
+    client_id = request.sid
+    
+    if task_id in active_tasks:
+        join_room(f"task_{task_id}")
+        # Send current task status
+        task = active_tasks[task_id]
+        emit('task_update', task)
 
 @app.route('/api/search-docs', methods=['GET'])
 def search_docs():
-    """Search for documentation links for a given framework/tool"""
+    """Find official documentation for a given framework/tool with intelligent discovery"""
     framework = request.args.get('q', '').strip()
     
     if not framework:
         return jsonify({'error': 'Please provide a framework name'}), 400
     
     try:
-        # Run the async search in a new event loop
+        # Run the intelligent doc finder
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
-        async def run_search():
-            async with DocSearchService() as search_service:
-                return await search_service.search_documentation(framework)
+        async def run_intelligent_search():
+            async with IntelligentDocFinder() as doc_finder:
+                return await doc_finder.find_official_documentation(framework)
         
-        results = loop.run_until_complete(run_search())
+        result = loop.run_until_complete(run_intelligent_search())
         loop.close()
         
-        return jsonify({
-            'framework': framework,
-            'links': results
-        })
+        return jsonify(result)
             
     except Exception as e:
-        logger.error(f"Error in search_docs: {e}")
-        return jsonify({'error': 'Failed to search documentation'}), 500
+        logger.error(f"Error in intelligent search: {e}")
+        return jsonify({'error': 'Failed to find documentation'}), 500
 
-@app.route('/api/scrape', methods=['POST'])
-def scrape_documentation():
-    """Scrape documentation from a given URL"""
+@app.route('/api/discover-topics', methods=['POST'])
+def discover_topics():
+    """Discover documentation topics using AI"""
     data = request.json
     url = data.get('url', '').strip()
-    folder = data.get('folder', '').strip()
     framework = data.get('framework', '').strip()
+    task_id = data.get('task_id')  # Optional task_id for WebSocket updates
     
-    if not all([url, folder, framework]):
-        return jsonify({'error': 'Missing required parameters'}), 400
+    if not url or not framework:
+        return jsonify({'error': 'URL and framework are required'}), 400
     
-    # TODO: Implement actual scraping logic
-    # This would integrate with the existing scraper modules
+    try:
+        # Create progress callback for WebSocket updates
+        async def progress_callback(task_id: str, updates: dict):
+            if task_id:
+                # Emit to all clients subscribed to this task
+                socketio.emit('topic_discovery_update', {
+                    'task_id': task_id,
+                    **updates
+                }, room=f"task_{task_id}")
+        
+        # Run the async topic discovery
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        async def run_discovery():
+            async with EnhancedTopicDiscoveryService(progress_callback) as discovery_service:
+                return await discovery_service.discover_topics_with_progress(url, framework, task_id)
+        
+        result = loop.run_until_complete(run_discovery())
+        loop.close()
+        
+        return jsonify(result)
+            
+    except Exception as e:
+        logger.error(f"Error discovering topics: {e}")
+        return jsonify({'error': 'Failed to discover topics'}), 500
+
+@app.route('/api/scrape', methods=['POST'])
+def start_scraping():
+    """Start scraping documentation"""
+    data = request.json
+    url = data.get('url', '').strip()
+    framework = data.get('framework', '').strip()
+    topic_name = data.get('topic_name', '').strip()
+    mode = data.get('mode', 'intelligent')  # 'intelligent' or 'basic'
+    
+    if not url or not framework:
+        return jsonify({'error': 'URL and framework are required'}), 400
+    
+    # Create task
+    task_id = str(uuid.uuid4())
+    active_tasks[task_id] = {
+        'id': task_id,
+        'url': url,
+        'framework': framework,
+        'topic_name': topic_name or framework,
+        'mode': mode,
+        'status': 'queued',
+        'progress': 0,
+        'message': 'Starting...'
+    }
+    
+    # Start scraping in background
+    if mode == 'intelligent':
+        socketio.start_background_task(run_intelligent_scraping, task_id, url, topic_name or framework, framework)
+    else:
+        socketio.start_background_task(run_scraping, task_id, url, framework)
     
     return jsonify({
-        'status': 'started',
-        'message': f'Started scraping {url} for {framework}',
-        'folder': folder
+        'task_id': task_id,
+        'message': 'Scraping started'
     })
 
-@app.route('/api/folders', methods=['GET'])
-def list_folders():
-    """List available folders for storing documentation"""
-    docs_dir = os.environ.get('DOCS_PATH', '/app/docs')
+def run_scraping(task_id: str, url: str, framework: str):
+    """Run the basic scraping task"""
+    async def progress_callback(task_id: str, updates: dict):
+        """Emit progress updates via WebSocket"""
+        task = active_tasks.get(task_id, {})
+        task.update(updates)
+        active_tasks[task_id] = task
+        
+        # Emit to all clients subscribed to this task
+        socketio.emit('task_update', task, room=f"task_{task_id}")
+    
+    # Run the async scraper
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    async def run_scraper():
+        async with ScraperService(progress_callback) as scraper:
+            await scraper.scrape_documentation(task_id, url, framework)
     
     try:
-        # List all directories in the docs folder
-        folders = []
-        if os.path.exists(docs_dir):
-            for item in os.listdir(docs_dir):
-                item_path = os.path.join(docs_dir, item)
-                if os.path.isdir(item_path):
-                    folders.append({
-                        'name': item,
-                        'path': item_path,
-                        'created': os.path.getctime(item_path)
-                    })
-        
-        # Sort by creation time (newest first)
-        folders.sort(key=lambda x: x['created'], reverse=True)
-        
-        return jsonify({'folders': folders})
+        loop.run_until_complete(run_scraper())
     except Exception as e:
-        logger.error(f"Error listing folders: {e}")
-        return jsonify({'error': 'Failed to list folders'}), 500
+        logger.error(f"Scraping error: {e}")
+        # Send error update
+        loop.run_until_complete(progress_callback(task_id, {
+            'status': 'error',
+            'message': str(e),
+            'error': str(e)
+        }))
+    finally:
+        loop.close()
 
-@app.route('/api/folders', methods=['POST'])
-def create_folder():
-    """Create a new folder for storing documentation"""
-    data = request.json
-    folder_name = data.get('name', '').strip()
+def run_intelligent_scraping(task_id: str, url: str, topic_name: str, framework: str):
+    """Run the intelligent scraping task"""
+    async def progress_callback(task_id: str, updates: dict):
+        """Emit progress updates via WebSocket"""
+        task = active_tasks.get(task_id, {})
+        task.update(updates)
+        active_tasks[task_id] = task
+        
+        # Emit to all clients subscribed to this task
+        socketio.emit('task_update', task, room=f"task_{task_id}")
     
-    if not folder_name:
-        return jsonify({'error': 'Folder name is required'}), 400
+    # Run the intelligent scraper
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     
-    # Sanitize folder name
-    folder_name = re.sub(r'[^\w\s-]', '', folder_name)
-    folder_name = re.sub(r'[-\s]+', '-', folder_name)
-    
-    docs_dir = os.environ.get('DOCS_PATH', '/app/docs')
-    folder_path = os.path.join(docs_dir, folder_name)
+    async def run_scraper():
+        async with IntelligentScraperService(progress_callback) as scraper:
+            await scraper.scrape_topic(task_id, url, topic_name, framework)
     
     try:
-        if os.path.exists(folder_path):
-            return jsonify({'error': 'Folder already exists'}), 409
-        
-        os.makedirs(folder_path, exist_ok=True)
-        
-        return jsonify({
-            'message': 'Folder created successfully',
-            'folder': {
-                'name': folder_name,
-                'path': folder_path
-            }
-        })
+        loop.run_until_complete(run_scraper())
     except Exception as e:
-        logger.error(f"Error creating folder: {e}")
-        return jsonify({'error': 'Failed to create folder'}), 500
+        logger.error(f"Intelligent scraping error: {e}")
+        # Send error update
+        loop.run_until_complete(progress_callback(task_id, {
+            'status': 'error',
+            'message': str(e),
+            'error': str(e)
+        }))
+    finally:
+        loop.close()
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -132,4 +221,4 @@ def health_check():
 
 if __name__ == '__main__':
     port = int(os.environ.get('API_PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)

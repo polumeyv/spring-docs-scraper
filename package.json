@@ -16,7 +16,18 @@
     "logs": "docker compose logs -f",
     "restart": "docker compose restart"
   },
-  "keywords": ["documentation", "scraper", "svelte", "developer", "tools"],
+  "keywords": [
+    "documentation",
+    "scraper",
+    "svelte",
+    "developer",
+    "tools"
+  ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@sveltejs/kit": "^0.0.30",
+    "@tailwindcss/vite": "^4.1.11",
+    "tailwindcss": "^4.1.11"
+  }
 }
