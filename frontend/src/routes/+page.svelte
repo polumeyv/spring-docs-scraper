@@ -1,5 +1,31 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { fade, fly } from 'svelte/transition';
+	import { 
+		Search, 
+		Download, 
+		ExternalLink, 
+		FolderPlus, 
+		ChevronDown,
+		Sparkles,
+		Code2,
+		BookOpen
+	} from 'lucide-svelte';
+	
+	// UI Components
+	import SearchInput from '$lib/components/ui/SearchInput.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
+	import Card from '$lib/components/ui/Card.svelte';
+	import Badge from '$lib/components/ui/Badge.svelte';
+	import Skeleton from '$lib/components/ui/Skeleton.svelte';
+	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
+	import Toast from '$lib/components/ui/Toast.svelte';
+	import DownloadQueue from '$lib/components/ui/DownloadQueue.svelte';
+	import ConnectionStatus from '$lib/components/ui/ConnectionStatus.svelte';
+	
+	// Stores
+	import { toast } from '$lib/stores/toast';
+	import { websocket } from '$lib/stores/websocket';
 	
 	interface DocLink {
 		title: string;
@@ -18,31 +44,46 @@
 	let searchResults = $state<SearchResult | null>(null);
 	let recentSearches = $state<SearchResult[]>([]);
 	let loading = $state(false);
-	let error = $state<string | null>(null);
 	let selectedFolder = $state<string>('');
 	let availableFolders = $state<string[]>([]);
 	let showCreateFolder = $state(false);
 	let newFolderName = $state('');
+	let showFolderDropdown = $state(false);
 	
-	onMount(async () => {
+	// Popular frameworks for suggestions
+	const popularFrameworks = [
+		'React', 'Vue', 'Angular', 'Svelte', 'Next.js',
+		'Django', 'Flask', 'FastAPI', 'Express', 'Spring Boot'
+	];
+	
+	let suggestions = $state<string[]>([]);
+	
+	onMount(() => {
+		// Connect to WebSocket
+		websocket.connect();
+
 		// Load recent searches from localStorage
 		const saved = localStorage.getItem('recentSearches');
 		if (saved) {
-			recentSearches = JSON.parse(saved);
+			try {recentSearches = JSON.parse(saved);} 
+			catch (e) {console.error('Failed to parse recent searches:', e);}
 		}
-		
-		// Load available folders
 		loadFolders();
+		return () => {
+			websocket.disconnect();
+		};
 	});
 	
 	async function searchDocumentation() {
-		if (!searchQuery.trim()) return;
+		if (!searchQuery.trim()) {
+			toast.warning('Please enter a framework or tool name');
+			return;
+		}
 		
 		loading = true;
-		error = null;
+		searchResults = null;
 		
 		try {
-			// TODO: Replace with actual API call
 			const response = await fetch(`/api/search-docs?q=${encodeURIComponent(searchQuery)}`);
 			
 			if (!response.ok) {
@@ -60,13 +101,27 @@
 			recentSearches = [searchResults, ...recentSearches.filter(s => s.framework !== searchQuery)].slice(0, 5);
 			localStorage.setItem('recentSearches', JSON.stringify(recentSearches));
 			
+			toast.success(`Found ${data.links.length} documentation links for ${searchQuery}`);
+			
 		} catch (err) {
-			error = 'Failed to search for documentation. Please try again.';
 			console.error('Search error:', err);
+			toast.error('Failed to search for documentation', 'Please check your connection and try again.');
 		} finally {
 			loading = false;
 		}
 	}
+	
+	function handleSearchInput(value: string) {
+		// Filter suggestions based on input
+		if (value.trim()) {
+			suggestions = popularFrameworks
+				.filter(fw => fw.toLowerCase().includes(value.toLowerCase()))
+				.slice(0, 5);
+		} else {
+			suggestions = [];
+		}
+	}
+	
 	async function loadFolders() {
 		try {
 			const response = await fetch('/api/folders');
@@ -80,7 +135,10 @@
 	}
 	
 	async function createFolder() {
-		if (!newFolderName.trim()) return;
+		if (!newFolderName.trim()) {
+			toast.warning('Please enter a folder name');
+			return;
+		}
 		
 		try {
 			const response = await fetch('/api/folders', {
@@ -94,18 +152,19 @@
 				selectedFolder = newFolderName;
 				newFolderName = '';
 				showCreateFolder = false;
+				toast.success('Folder created successfully');
 			} else {
 				const data = await response.json();
-				alert(data.error || 'Failed to create folder');
+				toast.error(data.error || 'Failed to create folder');
 			}
 		} catch (err) {
-			alert('Failed to create folder');
+			toast.error('Failed to create folder');
 		}
 	}
 	
 	async function scrapeDocumentation(link: DocLink) {
 		if (!selectedFolder) {
-			alert('Please select a folder to save the documentation');
+			toast.warning('Please select a folder first', 'Choose where to save the documentation');
 			return;
 		}
 		
@@ -122,436 +181,298 @@
 			
 			if (response.ok) {
 				const data = await response.json();
-				alert(`Started scraping ${link.title}. Check the ${selectedFolder} folder for the downloaded documentation.`);
+				toast.success(
+					'Download started!', 
+					`Scraping ${link.title} to ${selectedFolder} folder`
+				);
+				
+				// Subscribe to task updates
+				if (data.task_id) {
+					websocket.subscribeToTask(data.task_id);
+				}
 			} else {
-				alert('Failed to start scraping');
+				toast.error('Failed to start download');
 			}
 		} catch (err) {
-			alert('Failed to scrape documentation');
+			toast.error('Failed to scrape documentation');
 		}
 	}
 </script>
 
-<div class="container">
-	<header>
-		<h1>📚 Developer Documentation Scraper</h1>
-		<p class="subtitle">Search and download documentation for any framework or tool</p>
+<div class="min-h-screen bg-[var(--color-bg-primary)]">
+	<!-- Header -->
+	<header class="border-b bg-[var(--color-bg-secondary)]">
+		<div class="container mx-auto px-4 py-4">
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					<div class="rounded-lg bg-brand p-2">
+						<BookOpen size={24} class="text-white" />
+					</div>
+					<div>
+						<h1 class="text-xl font-semibold text-[var(--color-text-primary)]">
+							DevDocs Scraper
+						</h1>
+						<p class="text-sm text-[var(--color-text-secondary)]">
+							Search and download documentation for any framework
+						</p>
+					</div>
+				</div>
+				
+				<div class="flex items-center gap-4">
+					<ConnectionStatus />
+					<ThemeToggle />
+				</div>
+			</div>
+		</div>
 	</header>
 	
-	<div class="search-section">
-		<div class="search-container">
-			<input 
-				type="text" 
-				bind:value={searchQuery}
-				placeholder="Enter framework or tool name (e.g., React, Django, FastAPI...)"
-				class="search-input"
-				onkeypress={(e) => e.key === 'Enter' && searchDocumentation()}
-			/>
-			<button 
-				onclick={searchDocumentation} 
-				disabled={loading || !searchQuery.trim()}
-				class="search-button"
-			>
-				{loading ? 'Searching...' : 'Search'}
-			</button>
-		</div>
-		
-		<div class="folder-section">
-			{#if showCreateFolder}
-				<div class="create-folder-form">
-					<input
-						type="text"
-						bind:value={newFolderName}
-						placeholder="Enter new folder name"
-						class="folder-input"
-						onkeypress={(e) => e.key === 'Enter' && createFolder()}
-					/>
-					<button onclick={createFolder} class="create-btn">Create</button>
-					<button onclick={() => { showCreateFolder = false; newFolderName = ''; }} class="cancel-btn">Cancel</button>
-				</div>
-			{:else}
-				<div class="folder-selector">
-					<select bind:value={selectedFolder} class="folder-select">
-						<option value="">Select a folder...</option>
-						{#each availableFolders as folder}
-							<option value={folder}>{folder}</option>
-						{/each}
-					</select>
-					<button onclick={() => showCreateFolder = true} class="new-folder-btn">
-						📁 New Folder
-					</button>
-				</div>
-			{/if}
-		</div>
-	</div>
-	
-	{#if error}
-		<div class="error">Error: {error}</div>
-	{/if}
-	
-	{#if searchResults}
-		<div class="results-section">
-			<h2>Documentation for {searchResults.framework}</h2>
-			<div class="doc-links-grid">
-				{#each searchResults.links as link}
-					<div class="doc-card">
-						<div class="doc-header">
-							<span class="doc-type doc-type-{link.type}">{link.type}</span>
-							<h3>{link.title}</h3>
+	<!-- Main Content -->
+	<main class="container mx-auto px-4 py-8">
+		<!-- Search Section -->
+		<div class="mb-12 text-center">
+			<div class="mb-8">
+				<h2 class="mb-2 text-3xl font-bold text-[var(--color-text-primary)]">
+					Find Documentation Instantly
+				</h2>
+				<p class="text-lg text-[var(--color-text-secondary)]">
+					Search for any framework, library, or tool
+				</p>
+			</div>
+			
+			<div class="mx-auto max-w-2xl space-y-4">
+				<form onsubmit={(e) => { e.preventDefault(); searchDocumentation(); }}>
+					<div class="flex gap-3">
+						<div class="flex-1">
+							<SearchInput
+								bind:value={searchQuery}
+								placeholder="Search for React, Django, Flutter..."
+								{loading}
+								{suggestions}
+								showSuggestions={true}
+								onsearch={() => searchDocumentation()}
+								oninput={handleSearchInput}
+							/>
 						</div>
-						{#if link.description}
-							<p class="doc-description">{link.description}</p>
-						{/if}
-						<div class="doc-actions">
-							<a href={link.url} target="_blank" rel="noopener" class="view-link">View Online</a>
-							<button onclick={() => scrapeDocumentation(link)} class="scrape-button">
-								Download
-							</button>
+						<Button 
+							type="submit"
+							{loading}
+							onclick={searchDocumentation}
+						>
+							<Search size={20} />
+							Search
+						</Button>
+					</div>
+				</form>
+				
+				<!-- Folder Selection -->
+				<div class="relative">
+					<button
+						type="button"
+						onclick={() => showFolderDropdown = !showFolderDropdown}
+						class="flex w-full items-center justify-between rounded-md border border-scale-300 bg-white px-4 py-2.5 text-left text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 dark:border-scale-700 dark:bg-scale-900"
+					>
+						<span class="flex items-center gap-2">
+							<FolderPlus size={18} class="text-scale-500" />
+							{#if selectedFolder}
+								<span class="text-[var(--color-text-primary)]">{selectedFolder}</span>
+							{:else}
+								<span class="text-scale-500">Select a folder to save documentation</span>
+							{/if}
+						</span>
+						<ChevronDown size={18} class="text-scale-400" />
+					</button>
+					
+					{#if showFolderDropdown}
+						<div 
+							class="absolute z-10 mt-1 w-full rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 dark:bg-scale-800 animate-slide-down"
+							transition:fly={{ y: -10, duration: 200 }}
+						>
+							<div class="py-1">
+								{#each availableFolders as folder}
+									<button
+										type="button"
+										class="flex w-full items-center px-4 py-2 text-sm text-scale-700 hover:bg-scale-100 dark:text-scale-300 dark:hover:bg-scale-700"
+										onclick={() => { selectedFolder = folder; showFolderDropdown = false; }}
+									>
+										{folder}
+									</button>
+								{/each}
+								
+								<div class="border-t border-scale-200 dark:border-scale-700">
+									<button
+										type="button"
+										class="flex w-full items-center gap-2 px-4 py-2 text-sm text-brand hover:bg-scale-100 dark:hover:bg-scale-700"
+										onclick={() => { showCreateFolder = true; showFolderDropdown = false; }}
+									>
+										<FolderPlus size={16} />
+										Create new folder
+									</button>
+								</div>
+							</div>
+						</div>
+					{/if}
+				</div>
+				
+				<!-- Create Folder Form -->
+				{#if showCreateFolder}
+					<div 
+						class="rounded-md border border-scale-300 bg-scale-50 p-4 dark:border-scale-700 dark:bg-scale-800"
+						transition:fly={{ y: -10, duration: 200 }}
+					>
+						<div class="flex gap-2">
+							<input
+								type="text"
+								bind:value={newFolderName}
+								placeholder="Enter folder name"
+								class="input flex-1"
+								onkeypress={(e) => e.key === 'Enter' && createFolder()}
+							/>
+							<Button onclick={createFolder} size="sm">
+								Create
+							</Button>
+							<Button 
+								variant="ghost" 
+								size="sm"
+								onclick={() => { showCreateFolder = false; newFolderName = ''; }}
+							>
+								Cancel
+							</Button>
 						</div>
 					</div>
-				{/each}
+				{/if}
 			</div>
 		</div>
-	{/if}
-	
-	{#if recentSearches.length > 0}
-		<div class="recent-section">
-			<h2>Recent Searches</h2>
-			<div class="recent-searches">
-				{#each recentSearches as search}
-					<button 
-						onclick={() => { searchQuery = search.framework; searchDocumentation(); }}
-						class="recent-search-btn"
-					>
-						{search.framework}
-					</button>
-				{/each}
+		
+		<!-- Search Results -->
+		{#if loading}
+			<div class="mx-auto max-w-4xl">
+				<div class="grid gap-4 md:grid-cols-2">
+					{#each Array(4) as _}
+						<Card>
+							<div class="space-y-3">
+								<Skeleton width="80px" height="24px" />
+								<Skeleton width="100%" height="20px" />
+								<Skeleton width="100%" height="40px" />
+								<div class="flex gap-2">
+									<Skeleton width="100px" height="36px" />
+									<Skeleton width="100px" height="36px" />
+								</div>
+							</div>
+						</Card>
+					{/each}
+				</div>
 			</div>
-		</div>
-	{/if}
+		{:else if searchResults}
+			<div class="mx-auto max-w-4xl" transition:fade={{ duration: 200 }}>
+				<h3 class="mb-6 text-xl font-semibold text-[var(--color-text-primary)]">
+					Documentation for {searchResults.framework}
+				</h3>
+				
+				<div class="grid gap-4 md:grid-cols-2">
+					{#each searchResults.links as link, i}
+						<div transition:fly={{ y: 20, delay: i * 50, duration: 300 }}>
+							<Card hover>
+								<div class="space-y-3">
+									<div class="flex items-start justify-between">
+										<Badge type={link.type} />
+										<ExternalLink size={16} class="text-scale-400" />
+									</div>
+									
+									<div>
+										<h4 class="font-semibold text-[var(--color-text-primary)]">
+											{link.title}
+										</h4>
+										{#if link.description}
+											<p class="mt-1 text-sm text-[var(--color-text-secondary)]">
+												{link.description}
+											</p>
+										{/if}
+									</div>
+									
+									<div class="flex gap-2">
+										<Button
+											variant="secondary"
+											size="sm"
+											onclick={() => window.open(link.url, '_blank')}
+										>
+											<ExternalLink size={16} />
+											View Online
+										</Button>
+										<Button
+											variant="primary"
+											size="sm"
+											onclick={() => scrapeDocumentation(link)}
+										>
+											<Download size={16} />
+											Download
+										</Button>
+									</div>
+								</div>
+							</Card>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
+		
+		<!-- Recent Searches -->
+		{#if recentSearches.length > 0 && !loading && !searchResults}
+			<div class="mx-auto max-w-4xl">
+				<h3 class="mb-4 text-lg font-semibold text-[var(--color-text-primary)]">
+					Recent Searches
+				</h3>
+				<div class="flex flex-wrap gap-2">
+					{#each recentSearches as search}
+						<button
+							onclick={() => { searchQuery = search.framework; searchDocumentation(); }}
+							class="inline-flex items-center gap-2 rounded-full border border-scale-300 bg-white px-4 py-2 text-sm text-scale-700 transition-colors hover:bg-scale-100 hover:text-scale-900 dark:border-scale-700 dark:bg-scale-800 dark:text-scale-300 dark:hover:bg-scale-700"
+						>
+							<Code2 size={16} />
+							{search.framework}
+						</button>
+					{/each}
+				</div>
+			</div>
+		{/if}
+		
+		<!-- Empty State -->
+		{#if !loading && !searchResults && recentSearches.length === 0}
+			<div class="mx-auto max-w-md text-center">
+				<div class="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-brand/10">
+					<Sparkles size={40} class="text-brand" />
+				</div>
+				<h3 class="mb-2 text-xl font-semibold text-[var(--color-text-primary)]">
+					Start Your Search
+				</h3>
+				<p class="mb-6 text-[var(--color-text-secondary)]">
+					Search for any framework or library to find and download its documentation
+				</p>
+				<div class="flex flex-wrap justify-center gap-2">
+					{#each popularFrameworks.slice(0, 5) as framework}
+						<button
+							onclick={() => { searchQuery = framework; searchDocumentation(); }}
+							class="rounded-full bg-scale-100 px-3 py-1 text-sm text-scale-700 hover:bg-scale-200 dark:bg-scale-800 dark:text-scale-300 dark:hover:bg-scale-700"
+						>
+							{framework}
+						</button>
+					{/each}
+				</div>
+			</div>
+		{/if}
+	</main>
 </div>
 
-<style>
-	.container {
-		max-width: 1200px;
-		margin: 0 auto;
-		padding: 2rem;
-	}
-	
-	header {
-		text-align: center;
-		margin-bottom: 3rem;
-	}
-	
-	h1 {
-		color: #2563eb;
-		font-size: 2.5rem;
-		margin-bottom: 0.5rem;
-	}
-	
-	.subtitle {
-		color: #666;
-		font-size: 1.2rem;
-	}
-	
-	.search-section {
-		margin-bottom: 2rem;
-	}
-	
-	.search-container {
-		display: flex;
-		gap: 1rem;
-		margin-bottom: 1rem;
-	}
-	
-	.search-input {
-		flex: 1;
-		padding: 0.75rem 1rem;
-		font-size: 1rem;
-		border: 2px solid #e5e7eb;
-		border-radius: 8px;
-		transition: border-color 0.2s;
-	}
-	
-	.search-input:focus {
-		outline: none;
-		border-color: #2563eb;
-	}
-	
-	.search-button {
-		padding: 0.75rem 2rem;
-		font-size: 1rem;
-		font-weight: 600;
-		color: white;
-		background-color: #2563eb;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-	
-	.search-button:hover:not(:disabled) {
-		background-color: #1d4ed8;
-	}
-	
-	.search-button:disabled {
-		background-color: #9ca3af;
-		cursor: not-allowed;
-	}
-	
-	.folder-section {
-		margin-top: 1rem;
-	}
-	
-	.folder-selector {
-		display: flex;
-		gap: 1rem;
-		align-items: center;
-	}
-	
-	.folder-select {
-		flex: 1;
-		padding: 0.75rem 1rem;
-		font-size: 1rem;
-		border: 2px solid #e5e7eb;
-		border-radius: 8px;
-		background-color: white;
-		cursor: pointer;
-		transition: border-color 0.2s;
-	}
-	
-	.folder-select:focus {
-		outline: none;
-		border-color: #2563eb;
-	}
-	
-	.new-folder-btn {
-		padding: 0.75rem 1.5rem;
-		font-size: 0.9rem;
-		color: #2563eb;
-		background-color: white;
-		border: 1px solid #2563eb;
-		border-radius: 8px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-	
-	.new-folder-btn:hover {
-		background-color: #2563eb;
-		color: white;
-	}
-	
-	.create-folder-form {
-		display: flex;
-		gap: 0.75rem;
-		align-items: center;
-	}
-	
-	.folder-input {
-		flex: 1;
-		padding: 0.75rem 1rem;
-		font-size: 1rem;
-		border: 2px solid #e5e7eb;
-		border-radius: 8px;
-		transition: border-color 0.2s;
-	}
-	
-	.folder-input:focus {
-		outline: none;
-		border-color: #2563eb;
-	}
-	
-	.create-btn, .cancel-btn {
-		padding: 0.75rem 1.5rem;
-		font-size: 0.9rem;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-	
-	.create-btn {
-		color: white;
-		background-color: #10b981;
-	}
-	
-	.create-btn:hover {
-		background-color: #059669;
-	}
-	
-	.cancel-btn {
-		color: #6b7280;
-		background-color: #f3f4f6;
-	}
-	
-	.cancel-btn:hover {
-		background-color: #e5e7eb;
-	}
-	
-	.error {
-		text-align: center;
-		padding: 1rem;
-		margin: 1rem 0;
-		color: #dc2626;
-		background-color: #fee2e2;
-		border-radius: 8px;
-	}
-	
-	.results-section {
-		margin-top: 3rem;
-	}
-	
-	.results-section h2 {
-		color: #1f2937;
-		margin-bottom: 1.5rem;
-	}
-	
-	.doc-links-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-		gap: 1.5rem;
-	}
-	
-	.doc-card {
-		background: white;
-		border: 1px solid #e5e7eb;
-		border-radius: 12px;
-		padding: 1.5rem;
-		transition: transform 0.2s, box-shadow 0.2s;
-	}
-	
-	.doc-card:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-	}
-	
-	.doc-header {
-		margin-bottom: 1rem;
-	}
-	
-	.doc-type {
-		display: inline-block;
-		padding: 0.25rem 0.75rem;
-		font-size: 0.75rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		border-radius: 4px;
-		margin-bottom: 0.5rem;
-	}
-	
-	.doc-type-official {
-		background-color: #dbeafe;
-		color: #1e40af;
-	}
-	
-	.doc-type-api {
-		background-color: #fce7f3;
-		color: #be185d;
-	}
-	
-	.doc-type-tutorial {
-		background-color: #d1fae5;
-		color: #065f46;
-	}
-	
-	.doc-type-github {
-		background-color: #e5e7eb;
-		color: #374151;
-	}
-	
-	.doc-type-reference {
-		background-color: #fef3c7;
-		color: #92400e;
-	}
-	
-	.doc-header h3 {
-		margin: 0;
-		color: #1f2937;
-		font-size: 1.1rem;
-	}
-	
-	.doc-description {
-		color: #6b7280;
-		font-size: 0.9rem;
-		margin-bottom: 1rem;
-		line-height: 1.5;
-	}
-	
-	.doc-actions {
-		display: flex;
-		gap: 0.75rem;
-	}
-	
-	.view-link, .scrape-button {
-		flex: 1;
-		padding: 0.5rem 1rem;
-		text-align: center;
-		font-size: 0.9rem;
-		font-weight: 500;
-		border-radius: 6px;
-		text-decoration: none;
-		transition: all 0.2s;
-		cursor: pointer;
-	}
-	
-	.view-link {
-		color: #2563eb;
-		background-color: #eff6ff;
-		border: 1px solid #bfdbfe;
-	}
-	
-	.view-link:hover {
-		background-color: #dbeafe;
-		border-color: #93c5fd;
-	}
-	
-	.scrape-button {
-		color: white;
-		background-color: #10b981;
-		border: none;
-	}
-	
-	.scrape-button:hover {
-		background-color: #059669;
-	}
-	
-	.recent-section {
-		margin-top: 3rem;
-		padding-top: 2rem;
-		border-top: 1px solid #e5e7eb;
-	}
-	
-	.recent-section h2 {
-		color: #6b7280;
-		font-size: 1.2rem;
-		margin-bottom: 1rem;
-	}
-	
-	.recent-searches {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
-	}
-	
-	.recent-search-btn {
-		padding: 0.5rem 1rem;
-		font-size: 0.9rem;
-		color: #4b5563;
-		background-color: #f3f4f6;
-		border: 1px solid #e5e7eb;
-		border-radius: 20px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-	
-	.recent-search-btn:hover {
-		background-color: #e5e7eb;
-		border-color: #d1d5db;
-	}
-	
-	:global(body) {
-		margin: 0;
-		background-color: #f9fafb;
-		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-	}
-</style>
+<!-- Click outside handlers -->
+{#if showFolderDropdown}
+	<button
+		class="fixed inset-0 z-0"
+		onclick={() => showFolderDropdown = false}
+		aria-hidden="true"
+	></button>
+{/if}
+
+<!-- Toast Notifications -->
+<Toast />
+
+<!-- Download Queue -->
+<DownloadQueue />
