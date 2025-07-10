@@ -9,6 +9,10 @@ export default defineConfig({
 				target: 'http://backend:8082',
 				changeOrigin: true,
 				rewrite: (path) => path.replace(/^\/docs/, '')
+			},
+			'/api': {
+				target: 'http://api:5000',
+				changeOrigin: true
 			}
 		}
 	}

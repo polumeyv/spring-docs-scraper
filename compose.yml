@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   frontend:
     build:
@@ -15,6 +13,7 @@ services:
       - NODE_ENV=development
     depends_on:
       - backend
+      - api
     networks:
       - app-network
 
@@ -32,6 +31,22 @@ services:
     networks:
       - app-network
     command: python src/serve_docs.py
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./spring-docs:/app/docs  # Shared documentation directory
+      - ./backend/src:/app/src  # Mount source for development
+    environment:
+      - PYTHONUNBUFFERED=1
+      - API_PORT=5000
+    networks:
+      - app-network
+    command: python src/api_server.py
 
   scraper:
     build:
@@ -51,6 +66,3 @@ services:
 networks:
   app-network:
     driver: bridge
-
-volumes:
-  docs-volume:
