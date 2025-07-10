@@ -11,7 +11,7 @@ import hashlib
 import signal
 import sys
 from datetime import datetime
-from typing import Dict, List, Set, Optional, Tuple
+from typing import Dict, List, Set, Optional, Tuple, Any
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 import logging
